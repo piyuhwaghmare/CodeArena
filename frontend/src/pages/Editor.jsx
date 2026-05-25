@@ -49,7 +49,7 @@ export default function Editor() {
 
     // Setup Socket.io connection
     useEffect(() => {                                         //useEffect to avoid infinte call
-        socketRef.current = io('http://localhost:3000', {
+        socketRef.current = io('http://15.206.170.214:3000', {
             withCredentials: true
         });
 
@@ -172,7 +172,7 @@ export default function Editor() {
 
         try {
          const response = await fetch(
-            'http://localhost:3000/analyze',      
+            'http://15.206.170.214:3000/analyze',      
             {
                 method: 'POST',
                 headers: {
