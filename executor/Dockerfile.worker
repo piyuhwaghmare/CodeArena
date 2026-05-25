@@ -1,0 +1,24 @@
+FROM node:18-slim AS dependencies
+
+WORKDIR /app
+
+# Copy package files first (caching!)
+COPY package*.json ./
+RUN npm install --only=production
+
+# ── Runner Stage ──────────────────────────
+FROM node:18-slim AS runner
+
+WORKDIR /app
+
+# Copy dependencies from stage 1
+COPY --from=dependencies /app/node_modules ./node_modules
+
+# Copy source code
+COPY . .
+
+# Worker differences from server:
+# 1. No EXPOSE — worker has no HTTP port
+# 2. CMD runs worker.js not server.js
+
+CMD ["node", "worker.js"]

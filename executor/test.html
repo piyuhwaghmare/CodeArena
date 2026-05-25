@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testing</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #00ff00; }
+        button { background: #00ff00; color: black; padding: 10px 20px; 
+                 border: none; cursor: pointer; margin: 5px; }
+        #output { background: #000; padding: 20px; margin-top: 20px; 
+                  min-height: 200px; border: 1px solid #00ff00; }
+        .status { color: #ffff00; }
+        .accepted { color: #00ff00; }
+        .error { color: #ff0000; }
+        .running { color: #00aaff; }
+    </style>
+</head>
+<body>
+    <h2>Codearena  -- Real Time Test</h2>
+
+    <button onclick="submitPython()">Submit Python</button>
+    <button onclick="submitCpp()">Submit C++</button>
+    <button onclick="submitError()">Submit Error Code</button>
+    <button onclick="submitSlow()">Submit Slow Code</button>
+
+    <div id="output">
+        <p>Waiting for Submissions...</p>
+    </div>
+
+    <script>
+        //Connect to WebSocket Server
+        const output = document.getElementById('output');
+        const socket = io('http://localhost:3000');
+
+        function log(message, type='') {
+           const p = document.createElement('p');
+           p.className = type;
+           p.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+           output.appendChild(p);
+           output.scrollTop = output.scrollHeight;
+        }
+
+        socket.on('connect', () => {
+            log('WebSocket Connected: ' + socket.id, 'accepted');
+        });
+
+        socket.on('disconnect', () => {
+            log('Websocket Disconnected', 'error');
+        });
+
+        //Listen for job results.
+        socket.on('job-result', (data) => {
+            log(`   Result received!`, 'status');
+            log(`   Submission: ${data.submissionId}`, 'status');
+            log(`   Status: ${data.status}`, data.status === 'accepted' ? 'accepted' : 'error');
+            if(data.output) log(`   Output: ${data.output}`, 'accepted');
+            if(data.executionTime) log(`   Time: ${data.executionTime}ms`, 'status');
+            log('─────────────────────', 'status');
+        });
+
+        async function submitCode(code, language) {
+            log(`\n Submitting ${language} code...`, 'status');
+
+            const response = await fetch('http://localhost:3000/execute', {
+                method: 'POST',
+                headers: { 'Content-Type' : 'application/json' },
+                body: JSON.stringify({ code, language, userId: 1, problemId: 1 })
+            });
+
+            const data = await response.json();
+            log(`  Job ID: ${data.jobId} | Submission: ${data.submissionId}`, 'status');
+            log(`  Status: ${data.status} — waiting for result...`, 'running');
+
+            // Join room for this specific job
+            socket.emit('join-job', data.jobId);
+            log(`🔌 Joined room: job-${data.jobId}`, 'running');
+        }
+
+        function submitPython() {
+            submitCode(
+                "import time\nnums = list(range(100))\nprint(f'Sum: {sum(nums)}')",
+                'python'
+            );
+        }
+
+        function submitCpp() {
+            submitCode(
+                '#include<iostream>\nusing namespace std;\nint main(){\n    cout<<"C++ Result: "<<42<<endl;\n    return 0;\n}',
+                'cpp'
+            );
+        }
+
+        function submitError() {
+            submitCode('print(undefined_var)', 'python');
+        }
+
+        function submitSlow() {
+            submitCode(
+                'import time\nfor i in range(3):\n    time.sleep(1)\n    print(f"Step {i+1}")',
+                'python'
+            );
+        }
+
+    </script>
+</body>
+</html>

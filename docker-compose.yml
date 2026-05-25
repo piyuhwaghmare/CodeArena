@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+
+  server:
+    build:
+      context: ./executor
+      dockerfile: Dockerfile   
+    env_file:
+      - .env 
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - codearena-network
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./executor
+      dockerfile: Dockerfile.worker 
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - codearena-network
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - codearena-network
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    networks:
+      - codearena-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+networks:
+  codearena-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:
