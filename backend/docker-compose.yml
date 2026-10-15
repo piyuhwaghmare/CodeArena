@@ -4,10 +4,10 @@ services:
 
   server:
     build:
-      context: ./executor
+      context: ../executor
       dockerfile: Dockerfile   
     env_file:
-      - .env 
+      - ../executor/.env 
     ports:
       - "3000:3000"
     volumes:
@@ -34,8 +34,10 @@ services:
 
   worker:
     build:
-      context: ./executor
+      context: ../executor
       dockerfile: Dockerfile.worker 
+    env_file:
+      - ../executor/.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
