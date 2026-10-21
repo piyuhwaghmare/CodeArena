@@ -145,10 +145,10 @@ const worker = new Worker(
         console.log(`Job ${job.id} done: ${finalStatus} (Lamport Clock: ${workerLamportClock})`);
         return { submissionId, status: finalStatus, lamportClock: workerLamportClock };
     },
-     {
+    {
         connection,
-        concurrency: 2,
-     }
+        concurrency: Math.max(1, parseInt(process.env.WORKER_CONCURRENCY, 10) || 10),
+    }
 );
 
 worker.on('completed', (job, result) => {
@@ -163,4 +163,5 @@ worker.on('error', (err) => {
     console.error('Worker error:', err.message);
 });
 
-console.log('Worker ready — waiting for jobs...\n');
+const activeConcurrency = Math.max(1, parseInt(process.env.WORKER_CONCURRENCY, 10) || 10);
+console.log(`Worker ready — processing jobs with concurrency: ${activeConcurrency} (parallel jobs)\n`);
