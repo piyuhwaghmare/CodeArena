@@ -1,241 +1,124 @@
-# Setup Instructions - Input/Output Handling
+# CodeArena - Multi-Language Setup & Startup Guide
 
-## Quick Start
+## 🚀 Post-PC Restart Startup Guide
 
-### 1. Install New Dependencies
-```bash
-cd executor
-npm install uuid
+Whenever you restart your PC, follow these steps to get CodeArena running in minutes.
+
+---
+
+### Step 1: Ensure Prerequisites are Running
+
+1. **Docker Desktop:**
+   - Launch **Docker Desktop** from your Windows Start Menu.
+   - Wait until Docker Desktop shows the green indicator (**"Engine running"**).
+
+2. **PostgreSQL Database:**
+   - PostgreSQL runs as a native Windows service (`postgresql-x64-18`).
+   - It usually starts automatically on boot. To verify or start manually in PowerShell:
+     ```powershell
+     Get-Service postgresql*
+     # If stopped:
+     Start-Service postgresql-x64-18
+     ```
+
+3. **Redis Container:**
+   - Open PowerShell or CMD and start the existing Redis container:
+     ```powershell
+     docker start codearena-redis
+     ```
+   - *(If the container was ever removed, create it with: `docker run -d --name codearena-redis -p 6379:6379 redis:7-alpine`)*
+
+---
+
+### Step 2: Start the System Services (3 Terminals)
+
+Open **3 separate terminal windows** (or tabs in VS Code / Windows Terminal):
+
+#### 🔹 Terminal 1: Backend API Gateway
+```powershell
+cd C:\Users\HP\Desktop\DS\CodeArena\executor
+node server.js
+```
+*Expected output:*
+```
+Submission queue created
+Server running on 3000
+PostgreSQL connected successfully!
 ```
 
-### 2. Rebuild Docker Containers
-```bash
-# Stop existing containers
-docker-compose down
+#### 🔹 Terminal 2: High-Concurrency Execution Worker
+```powershell
+cd C:\Users\HP\Desktop\DS\CodeArena\executor
+node worker.js
+```
+*Expected output:*
+```
+Worker started, waiting for jobs...
+```
+*(Runs with concurrency = 10 as configured in `.env`).*
 
-# Rebuild and start
-docker-compose up --build -d
+#### 🔹 Terminal 3: Frontend Web Application
+> ⚠️ **Important for Windows PowerShell:** Always use `npm.cmd` instead of `npm` to bypass Windows PowerShell script execution policy errors.
+```powershell
+cd C:\Users\HP\Desktop\DS\CodeArena\frontend
+npm.cmd run dev
+```
+*Expected output:*
+```
+VITE v5.x.x  ready in xxx ms
+➜  Local:   http://localhost:5173/
 ```
 
-### 3. Verify Docker Images
-```bash
-# Check if sandbox images exist
-docker images | grep codearena
+Now open **http://localhost:5173** in your browser!
 
-# If not, build them:
-cd sandboxes/python
-docker build -t codearena-python .
+---
 
-cd ../cpp
-docker build -t codearena-cpp .
+## ⚡ Concurrency & Worker Scaling
+
+Worker concurrency is configured dynamically via `executor/.env`:
+
+```env
+WORKER_CONCURRENCY=10
 ```
 
-### 4. Test the System
+- **In-process Concurrency:** A single worker process executes up to 10 Docker containers simultaneously.
+- **Horizontal Scaling:** You can run multiple worker processes in parallel terminals (e.g. 3 terminal windows running `node worker.js` will process up to **30 jobs concurrently** via Redis BullMQ work-stealing).
 
-#### Test 1: Custom Input (Python)
-1. Login to the application
-2. Go to Editor
-3. Write this code:
-```python
-name = input()
-print(f"Hello, {name}!")
-```
-4. In "Output" tab, enter custom input: `World`
-5. Click "Run"
-6. Expected output: `Hello, World!`
+---
 
-#### Test 2: Custom Input (C++)
-1. Change language to C++
-2. Write this code:
-```cpp
-#include<iostream>
-using namespace std;
-int main(){
-    string name;
-    cin >> name;
-    cout << "Hello, " << name << "!" << endl;
-    return 0;
-}
-```
-3. Enter custom input: `World`
-4. Click "Run"
-5. Expected output: `Hello, World!`
+## 🛠️ Supported Languages & Docker Sandboxes
 
-#### Test 3: Test Cases (Admin)
-1. Login as admin
-2. Go to Admin Panel → Test Cases tab
-3. Select "Reverse String" problem (or create one)
-4. Add test case:
-   - Input: `hello`
-   - Expected Output: `olleh`
-   - Hidden: No
-5. Save
+CodeArena supports **7 programming languages** running in isolated Docker containers:
 
-#### Test 4: Submit with Test Cases
-1. Go to Editor
-2. Select the problem you added test cases for
-3. Write solution code
-4. Click "Submit"
-5. Check "Test Cases" tab for results
+| Language | Version / Compiler | Docker Image | Memory Limit | Timeout |
+| :--- | :--- | :--- | :--- | :--- |
+| **Python** | 3.11 Alpine | `codearena-python` | 256MB | 5s |
+| **C++** | GCC 12 (C++17) | `codearena-cpp` | 256MB | 6s |
+| **C** | GCC 12 (C11) | `codearena-c` | 256MB | 6s |
+| **Java** | Eclipse Temurin 17 JDK | `codearena-java` | 384MB | 7s |
+| **JavaScript**| Node.js 20 Alpine | `codearena-javascript` | 256MB | 5s |
+| **C#** | .NET 8 SDK Alpine | `codearena-csharp` | 384MB | 9s |
+| **PHP** | PHP 8.2 CLI Alpine | `codearena-php` | 256MB | 5s |
 
-## Verification Checklist
-
-- [ ] `npm install` completed without errors
-- [ ] Docker containers are running (`docker ps`)
-- [ ] Python sandbox image exists (`docker images | grep python`)
-- [ ] C++ sandbox image exists (`docker images | grep cpp`)
-- [ ] Custom input works for Python
-- [ ] Custom input works for C++
-- [ ] Test cases can be added in Admin panel
-- [ ] Submissions run against test cases
-- [ ] Results show pass/fail correctly
-
-## Common Issues
-
-### Issue 1: "Cannot find module 'uuid'"
-**Solution:**
-```bash
-cd executor
-npm install uuid
-docker-compose restart
+### Rebuilding Sandbox Images (if needed)
+If you ever prune your Docker images, re-build them using:
+```powershell
+cd C:\Users\HP\Desktop\DS\CodeArena\backend\sandboxes
+docker build -t codearena-python ./python
+docker build -t codearena-cpp ./cpp
+docker build -t codearena-c ./c
+docker build -t codearena-javascript ./javascript
+docker build -t codearena-php ./php
+docker build -t codearena-java ./java
+docker build -t codearena-csharp ./csharp
 ```
 
-### Issue 2: "Error: No such image: codearena-python"
-**Solution:**
-```bash
-cd sandboxes/python
-docker build -t codearena-python .
-cd ../cpp
-docker build -t codearena-cpp .
-```
+---
 
-### Issue 3: "Permission denied" when accessing /tmp
-**Solution:**
-```bash
-# On Linux/Mac
-sudo chmod 777 /tmp
+## 🔒 Security & Sandbox Isolation
+- Every execution runs with `--network none` (zero internet access).
+- CPU limited to 0.5 cores (`--cpus=0.5`).
+- Memory capped between 256MB - 384MB.
+- User code is decoded safely via Base64 to prevent shell escape vulnerabilities.
+- Ephemeral containers (`--rm`) are automatically destroyed after execution completes.
 
-# Or run Docker as root (not recommended for production)
-```
-
-### Issue 4: "Time limit exceeded" on all submissions
-**Solution:**
-```bash
-# Check Docker daemon
-docker info
-
-# Restart Docker service
-sudo systemctl restart docker  # Linux
-# or restart Docker Desktop on Windows/Mac
-
-# Restart containers
-docker-compose restart
-```
-
-### Issue 5: Test cases not showing in Editor
-**Solution:**
-1. Check database connection
-2. Verify test cases exist: `SELECT * FROM test_cases;`
-3. Check `/problems` API endpoint returns test cases
-4. Clear browser cache and reload
-
-## File Changes Summary
-
-### Modified Files:
-1. **executor/executor.js** - Complete rewrite of execution logic
-2. **executor/package.json** - Added uuid dependency
-3. **frontend/src/pages/Admin.jsx** - Added Test Cases management tab
-4. **frontend/src/pages/Editor.jsx** - Added problem description panel
-
-### New Files:
-1. **INPUT_OUTPUT_IMPLEMENTATION.md** - Complete documentation
-2. **SETUP_INSTRUCTIONS.md** - This file
-
-## Next Steps
-
-1. **Add More Problems:**
-   - Go to Admin → Problems
-   - Add problems with descriptions
-   - Add test cases for each problem
-
-2. **Test Different Scenarios:**
-   - Programs with no input
-   - Programs with multiple lines of input
-   - Programs with edge cases
-   - Hidden test cases
-
-3. **Monitor Performance:**
-   - Check Docker container resource usage
-   - Monitor execution times
-   - Check for memory leaks
-
-4. **Production Deployment:**
-   - Set proper resource limits
-   - Configure Redis persistence
-   - Set up database backups
-   - Enable HTTPS
-   - Configure proper CORS origins
-
-## Support
-
-If you encounter issues:
-1. Check Docker logs: `docker-compose logs -f`
-2. Check server logs: `docker-compose logs server`
-3. Check worker logs: `docker-compose logs worker`
-4. Check browser console for frontend errors
-5. Verify database schema is up to date
-
-## Architecture Overview
-
-```
-┌─────────────┐
-│   Browser   │
-│  (Editor)   │
-└──────┬──────┘
-       │ HTTP/WebSocket
-       ▼
-┌─────────────┐     ┌─────────────┐
-│   Server    │────▶│   Worker    │
-│ (Express)   │     │  (BullMQ)   │
-└──────┬──────┘     └──────┬──────┘
-       │                   │
-       ▼                   ▼
-┌─────────────┐     ┌─────────────┐
-│  PostgreSQL │     │   Docker    │
-│ (Test Cases)│     │ (Execution) │
-└─────────────┘     └─────────────┘
-```
-
-## Key Features Implemented
-
-✅ Custom input for quick testing
-✅ Test cases from database
-✅ Input/output comparison with normalization
-✅ Hidden test cases (users see only pass/fail)
-✅ Python and C++ support
-✅ Proper error handling
-✅ Resource limits (memory, CPU, time)
-✅ Clean output parsing
-✅ Admin panel for test case management
-✅ Real-time results via WebSocket
-✅ Problem descriptions in Editor
-✅ Visual test case results
-
-## Performance Metrics
-
-- **Execution Time:** ~200-500ms per test case
-- **Memory Usage:** Max 256MB per container
-- **Timeout:** 5 seconds per execution
-- **Concurrent Workers:** 2 (configurable)
-- **Queue Throughput:** ~10-20 submissions/minute
-
-## Security Considerations
-
-1. **No Network Access:** Containers run with `NetworkMode: 'none'`
-2. **Resource Limits:** Memory and CPU quotas enforced
-3. **Time Limits:** 5-second timeout prevents infinite loops
-4. **File Isolation:** Each execution uses unique temp directory
-5. **Auto Cleanup:** Containers and files removed after execution
-6. **No Code Injection:** Code written to files, not executed as shell commands
-
-Enjoy your fully functional code execution platform!
