@@ -17,8 +17,8 @@ Every submission runs inside a sandboxed Docker container with strict resource l
 
 ## ✨ Features
 
-- **Sandboxed Code Execution** — Python & C++ code runs in ephemeral, isolated Docker containers with memory limits (128MB–256MB), CPU limits (0.5 cores), and complete network isolation.
-- **Distributed Job Queue** — Redis + BullMQ decouples the API gateway from execution workers, enabling graceful queuing and horizontal scalability.
+- **Multi-Language Sandboxed Execution** — Python 3.11, C++17, C, Java 17, JavaScript (Node 20), C# (.NET 8), and PHP 8.2 code run in ephemeral, isolated Docker containers with memory limits (256MB), CPU limits (0.5 cores), and complete network isolation.
+- **High-Concurrency Distributed Job Queue** — Redis + BullMQ decouples the API gateway from execution workers, supporting 5–10 concurrent jobs per worker daemon and unlimited horizontal scaling (`--scale worker=N`).
 - **Real-Time Bidirectional Results** — WebSocket + Redis Pub/Sub delivers instant test case pass/fail feedback without client-side polling.
 - **🕒 Lamport Logical Clock Synchronization** — Implements Lamport's timestamp algorithm across Client, Server, and Worker nodes, complete with an in-browser live causal timeline visualization and invariant verification.
 - **Judge System** — Automated evaluation against visible and hidden test cases with execution time, memory usage, and diff breakdowns.
