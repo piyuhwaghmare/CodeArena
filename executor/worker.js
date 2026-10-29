@@ -1,13 +1,14 @@
+require('dotenv').config();
 const { Worker } = require('bullmq');
 const { connection } = require('./queue');
 const pool = require('./db');
 const { executeCode } = require('./executor');
-const { createClient } = require('redis') // TO solve the problem that worker will connect as a client to server. Removing seperation with server.
+const { createClient } = require('redis');
 
-//Redis Pub --- Worker publishes results.
+// Redis Pub --- Worker publishes results.
 const publisher = createClient({
     socket: {
-        host: 'redis' ,
+        host: process.env.REDIS_HOST || 'localhost',
         port: 6379
     }
 });
@@ -21,13 +22,27 @@ function sanitizeOutput(str) {
     return str.replace(/\0/g, '').trim();
 }
 
+// Lamport Logical Clock for Worker Node
+let workerLamportClock = 0;
+
 const worker = new Worker(
     'code-submission',  // Must match queue name exactly.
 
     async (job) => {
-        const { submissionId, code, language, problemId } = job.data;
+        const { submissionId, code, language, problemId, lamportClock, lamportTimeline } = job.data;
 
-        console.log(`\n Processing job ${job.id}`);
+        // Lamport Rule 2: L_worker = max(L_worker, L_msg) + 1
+        const incomingClock = parseInt(lamportClock, 10) || 0;
+        workerLamportClock = Math.max(workerLamportClock, incomingClock) + 1;
+
+        const timeline = Array.isArray(lamportTimeline) ? [...lamportTimeline] : [];
+        timeline.push({
+            node: 'Worker Daemon',
+            event: 'Job Picked from Queue',
+            clock: workerLamportClock
+        });
+
+        console.log(`\n Processing job ${job.id} (Lamport Clock: ${workerLamportClock})`);
         console.log('Submission ID:', submissionId);
         console.log('Language:', language);
         console.log('Problem ID:', problemId);
@@ -38,13 +53,23 @@ const worker = new Worker(
             [submissionId]
         );
 
+        // Lamport Rule 1: increment before sending event
+        workerLamportClock = workerLamportClock + 1;
+        timeline.push({
+            node: 'Worker Daemon',
+            event: 'Execution Started',
+            clock: workerLamportClock
+        });
+
         //Notify client: running
         await publisher.publish(
             `job-${job.id}`,
             JSON.stringify({
                 submissionId,
                 status: 'running',
-                output: null
+                output: null,
+                lamportClock: workerLamportClock,
+                lamportTimeline: timeline
             })
         );
 
@@ -90,6 +115,14 @@ const worker = new Worker(
             ]
         );
 
+        // Lamport Rule 1: internal execution event completed
+        workerLamportClock = workerLamportClock + 1;
+        timeline.push({
+            node: 'Worker Daemon',
+            event: 'Sandbox Execution Completed',
+            clock: workerLamportClock
+        });
+
         // Publish full result to Redis
         await publisher.publish(
             `job-${job.id}`,
@@ -103,17 +136,19 @@ const worker = new Worker(
                 // Simple run output
                 output:       result.output ?? null,
                 executionTime: result.executionTime ??
-                    result.results?.[0]?.executionTime ?? 0
+                    result.results?.[0]?.executionTime ?? 0,
+                lamportClock: workerLamportClock,
+                lamportTimeline: timeline
             })
         );
 
-        console.log(`Job ${job.id} done: ${finalStatus}`);
-        return { submissionId, status: finalStatus };
+        console.log(`Job ${job.id} done: ${finalStatus} (Lamport Clock: ${workerLamportClock})`);
+        return { submissionId, status: finalStatus, lamportClock: workerLamportClock };
     },
-     {
+    {
         connection,
-        concurrency: 2,
-     }
+        concurrency: Math.max(1, parseInt(process.env.WORKER_CONCURRENCY, 10) || 10),
+    }
 );
 
 worker.on('completed', (job, result) => {
@@ -128,4 +163,5 @@ worker.on('error', (err) => {
     console.error('Worker error:', err.message);
 });
 
-console.log('Worker ready — waiting for jobs...\n');
+const activeConcurrency = Math.max(1, parseInt(process.env.WORKER_CONCURRENCY, 10) || 10);
+console.log(`Worker ready — processing jobs with concurrency: ${activeConcurrency} (parallel jobs)\n`);

@@ -5,21 +5,129 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 
-const LANGUAGES = [                              //To choose language (one can add)
-    { value: 'python', label: 'Python' },
-    { value: 'cpp', label: 'C++' },
+const LANGUAGES = [
+    { value: 'python', label: 'Python (3.11)' },
+    { value: 'cpp', label: 'C++ (GCC 12)' },
+    { value: 'c', label: 'C (GCC 12)' },
+    { value: 'java', label: 'Java (OpenJDK 17)' },
+    { value: 'javascript', label: 'JavaScript (Node 20)' },
+    { value: 'csharp', label: 'C# (.NET 8)' },
+    { value: 'php', label: 'PHP (8.2)' },
 ];
 
-const DEFAULT_CODE = {                          //Default code visible to user as per language selected
-    python: `# Write your Python code here     
-nums = [1, 2, 3, 4, 5]
-print(f"Sum: {sum(nums)}")`,
-    cpp: `#include<iostream>                     
+const MONACO_LANG_MAP = {
+    python: 'python',
+    cpp: 'cpp',
+    c: 'c',
+    java: 'java',
+    javascript: 'javascript',
+    csharp: 'csharp',
+    php: 'php'
+};
+
+const DEFAULT_CODE = {
+    python: `# Python 3.11
+import sys
+
+def main():
+    line = sys.stdin.read().strip()
+    print(line[::-1] if line else "Hello from Python!")
+
+if __name__ == '__main__':
+    main()`,
+
+    cpp: `// C++ 17
+#include <iostream>
+#include <string>
+#include <algorithm>
+
 using namespace std;
-int main(){
-    cout << "Hello from C++!" << endl;
+
+int main() {
+    string s;
+    if (cin >> s) {
+        reverse(s.begin(), s.end());
+        cout << s << endl;
+    } else {
+        cout << "Hello from C++!" << endl;
+    }
     return 0;
-}`
+}`,
+
+    c: `/* C (GCC 12) */
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+    char s[1024];
+    if (scanf("%1023s", s) == 1) {
+        int len = strlen(s);
+        for (int i = 0; i < len / 2; i++) {
+            char temp = s[i];
+            s[i] = s[len - 1 - i];
+            s[len - 1 - i] = temp;
+        }
+        printf("%s\\n", s);
+    } else {
+        printf("Hello from C!\\n");
+    }
+    return 0;
+}`,
+
+    java: `// Java 17
+import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (sc.hasNext()) {
+            String s = sc.next();
+            System.out.println(new StringBuilder(s).reverse().toString());
+        } else {
+            System.out.println("Hello from Java!");
+        }
+    }
+}`,
+
+    javascript: `// JavaScript (Node.js 20)
+const fs = require('fs');
+
+function main() {
+    const input = fs.readFileSync(0, 'utf-8').trim();
+    if (input) {
+        console.log(input.split('').reverse().join(''));
+    } else {
+        console.log("Hello from JavaScript!");
+    }
+}
+
+main();`,
+
+    csharp: `// C# (.NET 8)
+using System;
+
+class Program {
+    static void Main(string[] args) {
+        string input = Console.ReadLine();
+        if (!string.IsNullOrEmpty(input)) {
+            char[] arr = input.ToCharArray();
+            Array.Reverse(arr);
+            Console.WriteLine(new string(arr));
+        } else {
+            Console.WriteLine("Hello from C#!");
+        }
+    }
+}`,
+
+    php: `<?php
+// PHP 8.2
+$input = trim(fgets(STDIN));
+if ($input !== "") {
+    echo strrev($input) . "\\n";
+} else {
+    echo "Hello from PHP!\\n";
+}
+?>`
 };
 
 export default function Editor() {
@@ -37,6 +145,10 @@ export default function Editor() {
     const [testResults, setTestResults] = useState(null);
     const [activeOutputTab, setActiveOutputTab] = useState('output');
 
+    // Distributed Systems: Lamport Logical Clock state (Unit III)
+    const [clientLamportClock, setClientLamportClock] = useState(0);
+    const [lamportTimeline, setLamportTimeline] = useState([]);
+
     const [showSuccess, setShowSuccess] = useState(false);
 
     // AI analysis
@@ -49,7 +161,8 @@ export default function Editor() {
 
     // Setup Socket.io connection
     useEffect(() => {                                         //useEffect to avoid infinte call
-        socketRef.current = io('http://15.206.170.214:3000', {
+        const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        socketRef.current = io(socketUrl, {
             withCredentials: true
         });
 
@@ -58,6 +171,22 @@ export default function Editor() {
         });
 
         socketRef.current.on('job-result', (data) => {        //Get the job available in the websocket channel
+            // Lamport Rule 2 on client receipt: L_client = max(L_client, L_incoming) + 1
+            if (data.lamportClock !== undefined) {
+                setClientLamportClock(prev => {
+                    const updated = Math.max(prev, Number(data.lamportClock)) + 1;
+                    if (data.lamportTimeline) {
+                        const finalTimeline = [...data.lamportTimeline, {
+                            node: 'Client (Browser)',
+                            event: data.status === 'running' ? 'Status: Running Received' : 'Final Result Received',
+                            clock: updated
+                        }];
+                        setLamportTimeline(finalTimeline);
+                    }
+                    return updated;
+                });
+            }
+
             if (data.status === 'running') {
              setStatus('running');
              return;    
@@ -137,12 +266,28 @@ export default function Editor() {
         setResult(null);
         setStatus('pending');
 
+        // Lamport Rule 1: L_client = L_client + 1 before sending message
+        const nextClock = clientLamportClock + 1;
+        setClientLamportClock(nextClock);
+        setLamportTimeline([
+            { node: 'Client (Browser)', event: 'Submit Code', clock: nextClock }
+        ]);
+
         try {
             const res = await api.post('/execute', {         //queue based FOR SUBMIT BUTTON
                 code,
                 language,
-                problemId: selectedProblem?.id || null
+                problemId: selectedProblem?.id || null,
+                lamportClock: nextClock
             });
+
+            if (res.data.lamportTimeline) {
+                setLamportTimeline(res.data.lamportTimeline);
+            }
+            if (res.data.lamportClock) {
+                // Lamport Rule 2 on receiving HTTP response
+                setClientLamportClock(prev => Math.max(prev, Number(res.data.lamportClock)));
+            }
 
             const { jobId } = res.data;
 
@@ -171,9 +316,10 @@ export default function Editor() {
         setAiLoading(true);
 
         try {
-         const response = await fetch(
-            'http://15.206.170.214:3000/analyze',      
-            {
+            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+            const response = await fetch(
+                `${apiBase}/analyze`,      
+                {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -383,7 +529,7 @@ export default function Editor() {
                     {/* Monaco Editor */}
                     <MonacoEditor
                         height="calc(100vh - 130px)"
-                        language={language === 'cpp' ? 'cpp' : 'python'}
+                        language={MONACO_LANG_MAP[language] || 'plaintext'}
                         value={code}
                         onChange={(val) => setCode(val || '')}
                         theme="vs-dark"
@@ -405,7 +551,23 @@ export default function Editor() {
     
     {/* Header */}
     <div style={styles.outputHeader}>
-        Output
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span>Output</span>
+            <span style={{
+                fontSize: '11px',
+                padding: '3px 8px',
+                borderRadius: '4px',
+                background: 'rgba(0, 170, 255, 0.15)',
+                color: '#00aaff',
+                border: '1px solid rgba(0, 170, 255, 0.3)',
+                fontFamily: 'monospace',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+            }}>
+                🕒 Lamport Clock: <strong>L={clientLamportClock}</strong>
+            </span>
+        </div>
         {status && (             //styling status using CSS
             <span style={{
                 ...styles.statusBadge,
@@ -464,6 +626,19 @@ export default function Editor() {
             }}
         >
             Test Cases
+        </button>
+        <button
+            onClick={() => setActiveOutputTab('lamport')}
+            style={{
+                ...styles.outputTab,
+                color: activeOutputTab === 'lamport'
+                    ? '#00aaff' : '#666',
+                borderBottom: activeOutputTab === 'lamport'
+                    ? '2px solid #00aaff'
+                    : '2px solid transparent'
+            }}
+        >
+            🕒 Lamport Clocks (DS)
         </button>
     </div>
 
@@ -683,6 +858,127 @@ export default function Editor() {
                    )}
                     </div>
                 )}
+            </div>
+        )}
+
+        {/* LAMPORT LOGICAL CLOCKS TAB (UNIT III) */}
+        {activeOutputTab === 'lamport' && (
+            <div style={{ padding: '4px 0' }}>
+                <div style={{
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(0, 170, 255, 0.08)',
+                    border: '1px solid rgba(0, 170, 255, 0.25)',
+                    marginBottom: '16px'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#00aaff', fontWeight: 'bold' }}>
+                                Syllabus Unit III: Synchronization
+                            </span>
+                            <h3 style={{ margin: '4px 0 0', color: '#fff', fontSize: '16px' }}>
+                                Lamport's Logical Clock Algorithm
+                            </h3>
+                        </div>
+                        <div style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            background: '#0d1829',
+                            border: '1px solid #00aaff',
+                            color: '#00aaff',
+                            fontSize: '18px',
+                            fontWeight: 'bold',
+                            fontFamily: 'monospace'
+                        }}>
+                            L = {clientLamportClock}
+                        </div>
+                    </div>
+                    <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
+                        Tracks causal event ordering across asynchronous nodes without relying on synchronized physical clocks.
+                    </p>
+                </div>
+
+                {/* Causal Chain Timeline */}
+                <p style={styles.outputLabel}>Distributed Causal Timeline (a → b)</p>
+                {lamportTimeline.length === 0 ? (
+                    <p style={styles.placeholder}>
+                        Click ⬆ Submit to trigger the distributed Lamport clock event chain.
+                    </p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                        {lamportTimeline.map((item, index) => (
+                            <div key={index} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '10px 12px',
+                                borderRadius: '6px',
+                                background: '#18181b',
+                                border: '1px solid #27272a',
+                                borderLeft: '3px solid #00aaff'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '22px',
+                                        height: '22px',
+                                        borderRadius: '50%',
+                                        background: 'rgba(0, 170, 255, 0.2)',
+                                        color: '#00aaff',
+                                        fontSize: '11px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {index + 1}
+                                    </span>
+                                    <div>
+                                        <div style={{ color: '#fff', fontSize: '13px', fontWeight: '500' }}>
+                                            {item.event}
+                                        </div>
+                                        <div style={{ color: '#71717a', fontSize: '11px' }}>
+                                            Node: <span style={{ color: '#a1a1aa' }}>{item.node}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <span style={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '13px',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(0, 170, 255, 0.15)',
+                                    color: '#00aaff',
+                                    border: '1px solid rgba(0, 170, 255, 0.3)'
+                                }}>
+                                    Clock: L={item.clock}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Mathematical Proof Card */}
+                <div style={{
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    background: '#131316',
+                    border: '1px solid #27272a'
+                }}>
+                    <p style={{ margin: '0 0 6px', color: '#e4e4e7', fontSize: '13px', fontWeight: 'bold' }}>
+                        📐 Algorithm Rules Applied:
+                    </p>
+                    <ul style={{ margin: 0, paddingLeft: '18px', color: '#a1a1aa', fontSize: '12px', lineHeight: '1.6' }}>
+                        <li>
+                            <strong style={{ color: '#00aaff' }}>Rule 1 (Internal Event / Pre-Send):</strong> Before generating an event or sending message <em>m</em>, process <em>i</em> increments: <code>L_i = L_i + 1</code>.
+                        </li>
+                        <li>
+                            <strong style={{ color: '#00aaff' }}>Rule 2 (Message Reception):</strong> Upon receiving <em>(m, L_msg)</em>, process <em>j</em> updates its clock: <code>L_j = max(L_j, L_msg) + 1</code>.
+                        </li>
+                        <li>
+                            <strong style={{ color: '#00ff88' }}>Clock Condition:</strong> For any two events <em>a</em> and <em>b</em>, if <em>a → b</em> (causally precedes), then <em>L(a) &lt; L(b)</em>.
+                        </li>
+                    </ul>
+                </div>
             </div>
         )}
 

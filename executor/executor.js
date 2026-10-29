@@ -1,31 +1,75 @@
 const Docker = require('dockerode');
 const docker = new Docker();
 
-// Simple language config
-const LANGUAGE_CONFIG = {               //It decide how the code will run in ubuntu
+function toBase64(str) {
+    return Buffer.from(str || '', 'utf8').toString('base64');
+}
+
+// Supported language configs
+const LANGUAGE_CONFIG = {
     python: {
         image: 'codearena-python',
+        timeout: 5000,
         getCmd: (code, stdin) => {
-            if (stdin) {
-                // Escape single quotes in both code and stdin
-                const safeCode = code.replace(/'/g, "'\"'\"'");
-                const safeInput = stdin.replace(/'/g, "'\"'\"'");
-                return ['sh', '-c', `echo '${safeInput}' | python3 -c '${safeCode}'`];
-            } else {
-                return ['python3', '-c', code];
-            }
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/solution.py && echo '${in64}' | base64 -d | python3 -u /tmp/solution.py`];
         }
     },
     cpp: {
         image: 'codearena-cpp',
+        timeout: 6000,
         getCmd: (code, stdin) => {
-            const safeCode = code.replace(/'/g, "'\"'\"'");
-            if (stdin) {
-                const safeInput = stdin.replace(/'/g, "'\"'\"'");
-                return ['sh', '-c', `echo '${safeCode}' > /tmp/main.cpp && g++ /tmp/main.cpp -o /tmp/main 2>&1 && echo '${safeInput}' | /tmp/main`];
-            } else {
-                return ['sh', '-c', `echo '${safeCode}' > /tmp/main.cpp && g++ /tmp/main.cpp -o /tmp/main 2>&1 && /tmp/main`];
-            }
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/main.cpp && g++ /tmp/main.cpp -O2 -o /tmp/main 2>&1 && echo '${in64}' | base64 -d | /tmp/main`];
+        }
+    },
+    c: {
+        image: 'codearena-c',
+        timeout: 6000,
+        getCmd: (code, stdin) => {
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/main.c && gcc /tmp/main.c -O2 -o /tmp/main 2>&1 && echo '${in64}' | base64 -d | /tmp/main`];
+        }
+    },
+    javascript: {
+        image: 'codearena-javascript',
+        timeout: 5000,
+        getCmd: (code, stdin) => {
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/main.js && echo '${in64}' | base64 -d | node /tmp/main.js`];
+        }
+    },
+    java: {
+        image: 'codearena-java',
+        timeout: 7000,
+        getCmd: (code, stdin) => {
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            const match = code.match(/public\s+class\s+([A-Za-z0-9_]+)/) || code.match(/class\s+([A-Za-z0-9_]+)/);
+            const className = match ? match[1] : 'Main';
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/${className}.java && javac /tmp/${className}.java 2>&1 && echo '${in64}' | base64 -d | java -cp /tmp ${className}`];
+        }
+    },
+    php: {
+        image: 'codearena-php',
+        timeout: 5000,
+        getCmd: (code, stdin) => {
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /tmp/main.php && echo '${in64}' | base64 -d | php /tmp/main.php`];
+        }
+    },
+    csharp: {
+        image: 'codearena-csharp',
+        timeout: 9000,
+        getCmd: (code, stdin) => {
+            const c64 = toBase64(code);
+            const in64 = toBase64(stdin);
+            return ['sh', '-c', `echo '${c64}' | base64 -d > /sandbox/app/Program.cs && echo '${in64}' | base64 -d | dotnet run --no-restore --project /sandbox/app -v q`];
         }
     }
 };
@@ -55,6 +99,11 @@ async function runOnce(code, language, stdin = '') {
             Tty: false,
             AttachStdout: true,
             AttachStderr: true,
+            Env: [
+                'DOTNET_CLI_TELEMETRY_OPTOUT=1',
+                'DOTNET_NOLOGO=1',
+                'PYTHONUNBUFFERED=1'
+            ],
             HostConfig: {
                 Memory: 256 * 1024 * 1024,  // 256MB
                 MemorySwap: 256 * 1024 * 1024,
@@ -73,7 +122,7 @@ async function runOnce(code, language, stdin = '') {
             try {
                 await container.kill();
             } catch (e) {}
-        }, 5000);
+        }, config.timeout || 5000);
 
         // Wait for container to finish
         await container.wait();
@@ -192,6 +241,10 @@ function cleanDockerLogs(data) {
             break;
         }
     }
+    
+    // Strip dotnet workload banner and compiler warnings if present
+    output = output.replace(/An issue was encountered verifying workloads[^\n]*\n?/g, '');
+    output = output.replace(/^[^\n]*:\s*warning\s+CS\d+:[^\n]*\n?/gm, '');
     
     return output;
 }
